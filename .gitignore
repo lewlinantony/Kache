@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Build files
+/build/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Executables
+*.out
+*.o
+*.exe
