@@ -15,7 +15,7 @@ set(CMAKE_OSX_ARCHITECTURES "arm64")
 find_package(Threads REQUIRED)
 
 # Define the executable and its source files
-add_executable(kache_server src/main.cpp src/KacheStore.cpp)
+add_executable(kache_server src/main.cpp src/KacheStore.cpp src/KacheServer.cpp)
 
 # Tell the compiler where to find our header files
 target_include_directories(kache_server PUBLIC include)
