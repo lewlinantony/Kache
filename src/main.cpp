@@ -7,27 +7,78 @@
 
 const int PORT = 6379;
 
+std::vector<std::string> parse_command(const std::string& command_str) {
+    std::vector<std::string> tokens;
+    std::stringstream ss(command_str);
+    std::string token;
+
+    while (ss >> token) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}
+
 void handle_client(int client_fd, KacheStore &store){
-    char buffer[1024] = {0};
+    char buffer[1024];
     std::string command;
     
-    if (read(client_fd, buffer, 1024) <= 1){
-        std::cout << "No Request Message detected" << std::endl;
-    }
-    else{
+    while (true){
+        memset(buffer, 0, sizeof(buffer)); // re-init all with '\0'
+        if (read(client_fd, buffer, sizeof(buffer)-1) <= 0){ /// -1 to avoid buffer overflow
+            std::cout << "Client Connection Closed" << std::endl;
+            break;
+        }
         command = std::string(buffer);
         command.erase(command.find_last_not_of("\r\n") + 1); // to remove \n from the end
-        std::cout << "Request Message >" << command << std::endl; 
-    }
 
-    std::string response;
-    if (command == "PING"){
-        response = "PONG\n";    
+        if (command.empty()){
+            continue;
+        }
+
+        std::vector<std::string> tokens = parse_command(command);
+        std::string response;
+
+        if (tokens.empty()){
+            response = "ERROR empty command";
+        }
+        else{
+            const std::string& cmd = tokens[0];
+
+            if (cmd =="SET" && tokens.size() == 3){
+                store.set(tokens[1], tokens[2]);
+                response ="VALUES SET\n";
+            }
+            else if (cmd == "GET" && tokens.size() == 2){
+                auto value = store.get(tokens[1]);
+                if (value){
+                    response = *value + "\n";
+                }
+                else{
+                    response = "(nil)\n";
+                }
+            }
+            else if (cmd == "DELETE" && tokens.size() == 2){
+                if (store.del(tokens[1])){
+                    response = "yes\n";
+                }
+                else{
+                    response = "no\n";
+                }
+
+            }
+            else if (cmd == "EXISTS" && tokens.size() == 2) {
+                 if (store.exists(tokens[1])) {
+                    response = "yes\n"; // Key exists
+                } else {
+                    response = "no\n"; // Key does not exist
+                }
+            }   
+            else {
+                response = "ERR unknown command '" + cmd + "'\n";
+            }                     
+        }
+        write(client_fd, response.c_str(), response.length());
     }
-    else{
-        response = "WONG\n";
-    }
-    write(client_fd, response.c_str(), response.length());
     close(client_fd);
 }
 
