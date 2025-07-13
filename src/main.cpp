@@ -3,8 +3,33 @@
 #include <sys/socket.h> // For socket(), bind(), etc.
 #include <netinet/in.h> // For sockaddr_in
 #include <unistd.h>     // For close()
+#include <thread>
 
 const int PORT = 6379;
+
+void handle_client(int client_fd, KacheStore &store){
+    char buffer[1024] = {0};
+    std::string command;
+    
+    if (read(client_fd, buffer, 1024) <= 1){
+        std::cout << "No Request Message detected" << std::endl;
+    }
+    else{
+        command = std::string(buffer);
+        command.erase(command.find_last_not_of("\r\n") + 1); // to remove \n from the end
+        std::cout << "Request Message >" << command << std::endl; 
+    }
+
+    std::string response;
+    if (command == "PING"){
+        response = "PONG\n";    
+    }
+    else{
+        response = "WONG\n";
+    }
+    write(client_fd, response.c_str(), response.length());
+    close(client_fd);
+}
 
 int main() {
     // server file descriptor
@@ -31,6 +56,7 @@ int main() {
 
     std::cout << "Kache server listening on port " << PORT << std::endl;
 
+    KacheStore store;
 
     while (true){
         sockaddr_in client_addr;
@@ -43,6 +69,9 @@ int main() {
         }
         
         std::cout << "New client Connected" << std::endl;
+
+        std::thread worker(handle_client, client_fd, std::ref(store));
+        worker.detach();
     }
 
     close(server_fd);
