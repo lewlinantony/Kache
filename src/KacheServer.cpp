@@ -4,11 +4,36 @@ KacheServer::KacheServer(int port) : port_(port){
     setup_server();
 }
 
+std::string read_line(int fd) {
+    std::string line;
+    char c;
+
+    while (read(fd, &c, 1) > 0) {
+        // Stop reading at the first sign of a line break.
+        if (c == '\r') {
+            // This is a simplified way to handle the \r\n pair.
+            char next_c;
+            // The `MSG_PEEK` flag lets us look at the next byte without removing it from the stream.
+            if (recv(fd, &next_c, 1, MSG_PEEK) > 0 && next_c == '\n') {
+                // It is indeed a \n. Read it to consume it.
+                read(fd, &c, 1);
+            }
+            break; // Stop reading.
+        }
+        if (c == '\n') {
+            // Found a Unix-style newline for manual testing
+            break;
+        }
+        line += c;
+    }
+    return line;
+}
+
 void KacheServer::setup_server() {
     // server file descriptor
     server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd_ == -1) {
-        std::cerr << "Failed to create socket" << std::endl; //using cerr we can choose to print or not print the cerr outputs using its file descriptors
+        std::cerr << "Failed to create socket" << std::endl; // using cerr we can choose to print or not print the cerr outputs using its file descriptors
         return;
     }
 
@@ -35,7 +60,6 @@ void KacheServer::accept_connections() {
         sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
         int client_fd = accept(server_fd_, (struct sockaddr*)&client_addr, &client_len);
-        
         if (client_fd < 0){
             std::cerr << "Failed to accept Connection" << std::endl;
             continue;
@@ -43,7 +67,7 @@ void KacheServer::accept_connections() {
         
         std::cout << "New client Connected" << std::endl;
 
-        std::thread worker(handle_client, client_fd, std::ref(store_), std::ref(store_mutex_));
+        std::thread worker(handle_client, client_fd, std::ref(store_));
         worker.detach();
     }
 
@@ -62,23 +86,47 @@ std::vector<std::string> parse_command(const std::string& command_str) {
 }
 
 void KacheServer::handle_client(int client_fd, KacheStore& store) {
-    char buffer[1024];
     std::string command;
     
     while (true){
-        memset(buffer, 0, sizeof(buffer)); // re-init all with '\0'
-        if (read(client_fd, buffer, sizeof(buffer)-1) <= 0){ /// -1 to avoid buffer overflow
+        std::string first_line = read_line(client_fd);
+        
+        // If the client disconnects, read_line will return an empty string.
+        if (first_line.empty()) {
             std::cout << "Client Connection Closed" << std::endl;
             break;
         }
-        command = std::string(buffer);
-        command.erase(command.find_last_not_of("\r\n") + 1); // to remove \n from the end
 
-        if (command.empty()){
+        // Make sure the command starts with '*' which means it's an Array of commands
+        if (first_line[0] != '*') {
+            write(client_fd, "ERR protocol error: expected *\n", 30);
             continue;
         }
 
-        std::vector<std::string> tokens = parse_command(command);
+        int num_args = std::stoi(first_line.substr(1));
+        std::vector<std::string> tokens;
+
+        // Loop for the number of arguments we expect
+        for (int i = 0; i < num_args; ++i) {
+            // Read the line that tells us the argument's length. e.g., "$3" for "SET"
+            std::string arg_len_line = read_line(client_fd);
+            if (arg_len_line.empty() || arg_len_line[0] != '$') {
+                write(client_fd, "ERR protocol error: expected $\n", 30);
+                break;
+            }
+            int arg_len = std::stoi(arg_len_line.substr(1));
+
+            // Use a vector to safely allocate the buffer
+            std::vector<char> arg_buffer(arg_len);
+            read(client_fd, arg_buffer.data(), arg_len);
+            
+            // Read the final \r\n and throw it away.
+            read_line(client_fd);
+
+            // Add the clean argument to our tokens.
+            tokens.push_back(std::string(arg_buffer.begin(), arg_buffer.end()));
+        }
+
         std::string response;
 
         if (tokens.empty()){
@@ -105,7 +153,7 @@ void KacheServer::handle_client(int client_fd, KacheStore& store) {
                     response = "(integer) 1\n";
                 }
                 else{
-                    response = "n(integer) 0\n";
+                    response = "(integer) 0\n";
                 }
 
             }
