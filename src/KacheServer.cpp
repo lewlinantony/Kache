@@ -1,6 +1,9 @@
 #include "KacheServer.hpp"
 
-KacheServer::KacheServer(int port) : port_(port){
+KacheServer::KacheServer(int port) : 
+    port_(port), 
+    pool_(std::thread::hardware_concurrency())
+{
     setup_server();
 }
 
@@ -67,8 +70,9 @@ void KacheServer::accept_connections() {
         
         std::cout << "New client Connected" << std::endl;
 
-        std::thread worker(handle_client, client_fd, std::ref(store_));
-        worker.detach();
+        pool_.enqueue([this, client_fd] {
+            this->handle_client(client_fd, this->store_);
+        });
     }
 
     close(server_fd_);    

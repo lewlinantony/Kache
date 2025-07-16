@@ -6,6 +6,7 @@
 #include <thread>
 #include <mutex>
 #include "KacheStore.hpp"
+#include "ThreadPool.hpp" 
 
 class KacheServer {
 public:
@@ -20,5 +21,5 @@ private:
     int port_;
     int server_fd_;
     KacheStore store_;
-    std::mutex store_mutex_; 
+    ThreadPool pool_;
 };
